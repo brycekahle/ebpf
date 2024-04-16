@@ -30,10 +30,6 @@ type perfEventHeader struct {
 	Size uint16
 }
 
-func cpuForEvent(event *unix.EpollEvent) int {
-	return int(event.Pad)
-}
-
 // Record contains either a sample or a counter of the
 // number of lost samples.
 type Record struct {
@@ -247,7 +243,7 @@ func NewReaderWithOptions(array *ebpf.Map, perCPUBuffer int, opts ReaderOptions)
 		rings = append(rings, ring)
 		pauseFds = append(pauseFds, ring.fd)
 
-		if err := poller.Add(ring.fd, i); err != nil {
+		if err := poller.Add(ring.fd, 0); err != nil {
 			return nil, err
 		}
 	}
@@ -359,7 +355,7 @@ func (pr *Reader) ReadInto(rec *Record) error {
 			// NB: The deferred pauseMu.Unlock will panic if Wait panics, which
 			// might obscure the original panic.
 			pr.pauseMu.Unlock()
-			nEvents, err := pr.poller.Wait(pr.epollEvents, pr.deadline)
+			_, err := pr.poller.Wait(pr.epollEvents, pr.deadline)
 			pr.pauseMu.Lock()
 			if err != nil {
 				return err
@@ -370,14 +366,19 @@ func (pr *Reader) ReadInto(rec *Record) error {
 				return errMustBePaused
 			}
 
-			for _, event := range pr.epollEvents[:nEvents] {
-				ring := pr.rings[cpuForEvent(&event)]
-				pr.epollRings = append(pr.epollRings, ring)
-
-				// Read the current head pointer now, not every time
-				// we read a record. This prevents a single fast producer
-				// from keeping the reader busy.
+			// Waking up userspace is expensive, make the most of it by checking
+			// all rings.
+			for _, ring := range pr.rings {
 				ring.loadHead()
+				if ring.remaining() > 0 {
+					pr.epollRings = append(pr.epollRings, ring)
+				}
+			}
+
+			if len(pr.epollRings) == 0 {
+				// Spurious wakeup since due to the eager consumption of rings
+				// above.
+				continue
 			}
 		}
 
