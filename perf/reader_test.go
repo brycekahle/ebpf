@@ -531,6 +531,27 @@ func TestPerfReaderWakeupEvents(t *testing.T) {
 	}
 }
 
+func TestReadWithoutWakeup(t *testing.T) {
+	t.Parallel()
+
+	events := perfEventArray(t)
+
+	rd, err := NewReaderWithOptions(events, 1, ReaderOptions{WakeupEvents: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rd.Close()
+
+	prog := outputSamplesProg(t, events, 5)
+	ret, _, err := prog.Test(internal.EmptyBPFContext)
+	testutils.SkipIfNotSupported(t, err)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(ret, 0))
+
+	rd.SetDeadline(time.Now())
+	checkRecord(t, rd)
+}
+
 func BenchmarkReader(b *testing.B) {
 	events := perfEventArray(b)
 	prog := outputSamplesProg(b, events, 80)

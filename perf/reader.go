@@ -325,7 +325,11 @@ func (pr *Reader) SetDeadline(t time.Time) {
 //
 // Calling Close interrupts the function.
 //
-// Returns os.ErrDeadlineExceeded if a deadline was set.
+// Returns [os.ErrDeadlineExceeded] if a deadline was set and the perf ring buffer
+// was empty. Otherwise returns a record and no error, even if the deadline was
+// exceeded.
+//
+// See [Reader.ReadInto] for a more efficient version of this method.
 func (pr *Reader) Read() (Record, error) {
 	var r Record
 
@@ -334,7 +338,7 @@ func (pr *Reader) Read() (Record, error) {
 
 var errMustBePaused = fmt.Errorf("perf ringbuffer: must have been paused before reading overwritable buffer")
 
-// ReadInto is like Read except that it allows reusing Record and associated buffers.
+// ReadInto is like [Reader.Read] except that it allows reusing Record and associated buffers.
 func (pr *Reader) ReadInto(rec *Record) error {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
@@ -355,10 +359,10 @@ func (pr *Reader) ReadInto(rec *Record) error {
 			// NB: The deferred pauseMu.Unlock will panic if Wait panics, which
 			// might obscure the original panic.
 			pr.pauseMu.Unlock()
-			_, err := pr.poller.Wait(pr.epollEvents, pr.deadline)
+			_, pollErr := pr.poller.Wait(pr.epollEvents, pr.deadline)
 			pr.pauseMu.Lock()
-			if err != nil {
-				return err
+			if pollErr != nil && !errors.Is(pollErr, os.ErrDeadlineExceeded) {
+				return pollErr
 			}
 
 			// Re-validate pr.paused since we dropped pauseMu.
@@ -376,6 +380,11 @@ func (pr *Reader) ReadInto(rec *Record) error {
 			}
 
 			if len(pr.epollRings) == 0 {
+				if pollErr != nil {
+					// We got an ErrDeadlineExceeded and all rings are empty.
+					return pollErr
+				}
+
 				// Spurious wakeup since due to the eager consumption of rings
 				// above.
 				continue
