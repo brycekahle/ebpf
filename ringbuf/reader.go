@@ -178,3 +178,8 @@ func (r *Reader) ReadInto(rec *Record) error {
 func (r *Reader) BufferSize() int {
 	return r.bufferSize
 }
+
+// Wakeup unblocks Read/ReadInto if it is blocking
+func (r *Reader) Wakeup() error {
+	return r.poller.Wakeup()
+}
