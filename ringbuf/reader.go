@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -13,9 +14,10 @@ import (
 )
 
 var (
-	ErrClosed = os.ErrClosed
-	errEOR    = errors.New("end of ring")
-	errBusy   = errors.New("sample not committed yet")
+	ErrClosed         = os.ErrClosed
+	errEOR            = errors.New("end of ring")
+	errBusy           = errors.New("sample not committed yet")
+	ErrWakeupComplete = errors.New("wakeup read all records")
 )
 
 // ringbufHeader from 'struct bpf_ringbuf_hdr' in kernel/bpf/ringbuf.c
@@ -55,6 +57,7 @@ type Reader struct {
 	haveData    bool
 	deadline    time.Time
 	bufferSize  int
+	wakeup      atomic.Bool
 }
 
 // NewReader creates a new BPF ringbuf reader.
@@ -146,6 +149,11 @@ func (r *Reader) ReadInto(rec *Record) error {
 
 	for {
 		if !r.haveData {
+			if r.wakeup.Load() {
+				r.wakeup.Store(false)
+				return ErrWakeupComplete
+			}
+
 			_, err := r.poller.Wait(r.epollEvents[:cap(r.epollEvents)], r.deadline)
 			if errors.Is(err, os.ErrDeadlineExceeded) && !r.ring.isEmpty() {
 				// Ignoring this for reading a valid entry after timeout
@@ -181,5 +189,6 @@ func (r *Reader) BufferSize() int {
 
 // Wakeup unblocks Read/ReadInto if it is blocking
 func (r *Reader) Wakeup() error {
+	r.wakeup.Store(true)
 	return r.poller.Wakeup()
 }

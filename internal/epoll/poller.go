@@ -23,6 +23,7 @@ type Poller struct {
 
 	eventMu sync.Mutex
 	event   *eventFd
+	wake    *eventFd
 }
 
 func New() (*Poller, error) {
@@ -38,10 +39,25 @@ func New() (*Poller, error) {
 		return nil, err
 	}
 
+	p.wake, err = newEventFd()
+	if err != nil {
+		unix.Close(epollFd)
+		p.event.close()
+		return nil, err
+	}
+
 	if err := p.Add(p.event.raw, 0); err != nil {
 		unix.Close(epollFd)
 		p.event.close()
+		p.wake.close()
 		return nil, fmt.Errorf("add eventfd: %w", err)
+	}
+
+	if err := p.Add(p.wake.raw, 0); err != nil {
+		unix.Close(epollFd)
+		p.event.close()
+		p.wake.close()
+		return nil, fmt.Errorf("add wake eventfd: %w", err)
 	}
 
 	runtime.SetFinalizer(p, (*Poller).Close)
@@ -56,7 +72,7 @@ func (p *Poller) Close() error {
 	runtime.SetFinalizer(p, nil)
 
 	// Interrupt Wait() via the event fd if it's currently blocked.
-	if err := p.Wakeup(); err != nil {
+	if err := p.closeWake(); err != nil {
 		return err
 	}
 
@@ -76,6 +92,11 @@ func (p *Poller) Close() error {
 	if p.event != nil {
 		p.event.close()
 		p.event = nil
+	}
+
+	if p.wake != nil {
+		p.wake.close()
+		p.wake = nil
 	}
 
 	return nil
@@ -161,6 +182,9 @@ func (p *Poller) Wait(events []unix.EpollEvent, deadline time.Time) (int, error)
 				// lock and sets p.epollFd = -1.
 				return 0, fmt.Errorf("epoll wait: %w", os.ErrClosed)
 			}
+			if int(event.Fd) == p.wake.raw {
+				p.wake.read()
+			}
 		}
 
 		return n, nil
@@ -173,6 +197,17 @@ type temporaryError interface {
 
 // Wakeup unblocks Wait if it's epoll_wait.
 func (p *Poller) Wakeup() error {
+	p.eventMu.Lock()
+	defer p.eventMu.Unlock()
+
+	if p.wake == nil {
+		return fmt.Errorf("epoll wake: %w", os.ErrClosed)
+	}
+
+	return p.wake.add(1)
+}
+
+func (p *Poller) closeWake() error {
 	p.eventMu.Lock()
 	defer p.eventMu.Unlock()
 
