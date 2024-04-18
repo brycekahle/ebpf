@@ -56,7 +56,7 @@ func (p *Poller) Close() error {
 	runtime.SetFinalizer(p, nil)
 
 	// Interrupt Wait() via the event fd if it's currently blocked.
-	if err := p.wakeWait(); err != nil {
+	if err := p.Wakeup(); err != nil {
 		return err
 	}
 
@@ -171,8 +171,8 @@ type temporaryError interface {
 	Temporary() bool
 }
 
-// wakeWait unblocks Wait if it's epoll_wait.
-func (p *Poller) wakeWait() error {
+// Wakeup unblocks Wait if it's epoll_wait.
+func (p *Poller) Wakeup() error {
 	p.eventMu.Lock()
 	defer p.eventMu.Unlock()
 

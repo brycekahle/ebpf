@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -18,8 +19,9 @@ import (
 )
 
 var (
-	ErrClosed = os.ErrClosed
-	errEOR    = errors.New("end of ring")
+	ErrClosed         = os.ErrClosed
+	errEOR            = errors.New("end of ring")
+	ErrWakeupComplete = errors.New("wakeup read all rings")
 )
 
 var perfEventHeaderSize = binary.Size(perfEventHeader{})
@@ -160,6 +162,7 @@ type Reader struct {
 	overwritable bool
 
 	bufferSize int
+	wakeup     atomic.Bool
 }
 
 // ReaderOptions control the behaviour of the user
@@ -364,6 +367,10 @@ func (pr *Reader) ReadInto(rec *Record) error {
 				// appropriate error.
 				return os.ErrDeadlineExceeded
 			}
+			if pr.wakeup.Load() {
+				pr.wakeup.Store(false)
+				return ErrWakeupComplete
+			}
 
 			// NB: The deferred pauseMu.Unlock will panic if Wait panics, which
 			// might obscure the original panic.
@@ -461,6 +468,12 @@ func (pr *Reader) Resume() error {
 // BufferSize is the size in bytes of each per-CPU buffer
 func (pr *Reader) BufferSize() int {
 	return pr.bufferSize
+}
+
+// Wakeup unblocks Read/ReadInto if it is blocking
+func (pr *Reader) Wakeup() error {
+	pr.wakeup.Store(true)
+	return pr.poller.Wakeup()
 }
 
 // NB: Has to be preceded by a call to ring.loadHead.
