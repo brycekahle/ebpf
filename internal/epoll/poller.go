@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf/internal"
+	"github.com/cilium/ebpf/internal/sys"
 	"github.com/cilium/ebpf/internal/unix"
 )
 
@@ -173,7 +174,7 @@ func (p *Poller) Wait(events []unix.EpollEvent, deadline time.Time) (int, error)
 			timeout = int(msec)
 		}
 
-		n, err := unix.EpollWait(p.epollFd, events, timeout)
+		n, err := unix.EpollPWait(p.epollFd, events, timeout, &sys.ProfSet)
 		if temp, ok := err.(temporaryError); ok && temp.Temporary() {
 			// Retry the syscall if we were interrupted, see https://github.com/golang/go/issues/20400
 			continue
