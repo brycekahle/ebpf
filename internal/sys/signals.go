@@ -8,13 +8,13 @@ import (
 	"github.com/cilium/ebpf/internal/unix"
 )
 
-// A sigset containing only SIGPROF.
-var profSet unix.Sigset_t
+// ProfSet is a sigset containing only SIGPROF.
+var ProfSet unix.Sigset_t
 
 func init() {
 	// See sigsetAdd for details on the implementation. Open coded here so
 	// that the compiler will check the constant calculations for us.
-	profSet.Val[sigprofBit/wordBits] |= 1 << (sigprofBit % wordBits)
+	ProfSet.Val[sigprofBit/wordBits] |= 1 << (sigprofBit % wordBits)
 }
 
 // maskProfilerSignal locks the calling goroutine to its underlying OS thread
@@ -25,7 +25,7 @@ func init() {
 func maskProfilerSignal() {
 	runtime.LockOSThread()
 
-	if err := unix.PthreadSigmask(unix.SIG_BLOCK, &profSet, nil); err != nil {
+	if err := unix.PthreadSigmask(unix.SIG_BLOCK, &ProfSet, nil); err != nil {
 		runtime.UnlockOSThread()
 		panic(fmt.Errorf("masking profiler signal: %w", err))
 	}
@@ -38,7 +38,7 @@ func maskProfilerSignal() {
 func unmaskProfilerSignal() {
 	defer runtime.UnlockOSThread()
 
-	if err := unix.PthreadSigmask(unix.SIG_UNBLOCK, &profSet, nil); err != nil {
+	if err := unix.PthreadSigmask(unix.SIG_UNBLOCK, &ProfSet, nil); err != nil {
 		panic(fmt.Errorf("unmasking profiler signal: %w", err))
 	}
 }

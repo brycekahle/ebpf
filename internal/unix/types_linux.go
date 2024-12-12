@@ -3,7 +3,9 @@
 package unix
 
 import (
+	"runtime"
 	"syscall"
+	"unsafe"
 
 	linux "golang.org/x/sys/unix"
 )
@@ -130,6 +132,51 @@ func Close(fd int) (err error) {
 
 func EpollWait(epfd int, events []EpollEvent, msec int) (n int, err error) {
 	return linux.EpollWait(epfd, events, msec)
+}
+
+// Do the interface allocations only once for common
+// Errno values.
+var (
+	errEAGAIN error = syscall.EAGAIN
+	errEINVAL error = syscall.EINVAL
+	errENOENT error = syscall.ENOENT
+)
+
+// Single-word zero for use when we need a valid pointer to 0 bytes.
+var _zero uintptr
+
+// errnoErr returns common boxed Errno values, to prevent
+// allocations at runtime.
+func errnoErr(e syscall.Errno) error {
+	switch e {
+	case 0:
+		return nil
+	case EAGAIN:
+		return errEAGAIN
+	case EINVAL:
+		return errEINVAL
+	case ENOENT:
+		return errENOENT
+	}
+	return e
+}
+
+func EpollPWait(epfd int, events []EpollEvent, msec int, sigmask *Sigset_t) (n int, err error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var _p0 unsafe.Pointer
+	if len(events) > 0 {
+		_p0 = unsafe.Pointer(&events[0])
+	} else {
+		_p0 = unsafe.Pointer(&_zero)
+	}
+	r0, _, e1 := linux.Syscall6(linux.SYS_EPOLL_PWAIT, uintptr(epfd), uintptr(_p0), uintptr(len(events)), uintptr(msec), uintptr(unsafe.Pointer(sigmask)), 0)
+	n = int(r0)
+	if e1 != 0 {
+		err = errnoErr(e1)
+	}
+	return
 }
 
 func EpollCtl(epfd int, op int, fd int, event *EpollEvent) (err error) {

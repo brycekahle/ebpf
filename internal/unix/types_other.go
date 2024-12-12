@@ -171,6 +171,10 @@ func EpollWait(epfd int, events []EpollEvent, msec int) (n int, err error) {
 	return 0, errNonLinux
 }
 
+func EpollPWait(epfd int, events []EpollEvent, msec int, sigmask *Sigset_t) (n int, err error) {
+	return 0, errNonLinux
+}
+
 func EpollCtl(epfd int, op int, fd int, event *EpollEvent) (err error) {
 	return errNonLinux
 }
