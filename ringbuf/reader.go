@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -57,6 +58,7 @@ type Reader struct {
 	deadline    time.Time
 	bufferSize  int
 	pendingErr  error
+	wakeupCount *atomic.Uint64
 }
 
 // NewReader creates a new BPF ringbuf reader.
@@ -91,6 +93,7 @@ func NewReader(ringbufMap *ebpf.Map) (*Reader, error) {
 		ring:        ring,
 		epollEvents: make([]unix.EpollEvent, 1),
 		bufferSize:  ring.size(),
+		wakeupCount: &atomic.Uint64{},
 	}, nil
 }
 
@@ -167,6 +170,7 @@ func (r *Reader) ReadInto(rec *Record) error {
 				return err
 			}
 			r.haveData = true
+			r.wakeupCount.Add(1)
 		}
 
 		for {
@@ -194,4 +198,10 @@ func (r *Reader) BufferSize() int {
 // until you receive a ErrFlushed error.
 func (r *Reader) Flush() error {
 	return r.poller.Flush()
+}
+
+// WakeupCount returns the number of times this reader has woken up during Read/ReadInto,
+// since the last time WakeupCount was called.
+func (r *Reader) WakeupCount() uint64 {
+	return r.wakeupCount.Swap(0)
 }

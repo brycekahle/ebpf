@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -151,6 +152,7 @@ type Reader struct {
 	overwritable bool
 	bufferSize   int
 	pendingErr   error
+	wakeupCount  *atomic.Uint64
 
 	// pauseMu protects eventFds so that Pause / Resume can be invoked while
 	// Read is blocked.
@@ -255,6 +257,7 @@ func NewReaderWithOptions(array *ebpf.Map, perCPUBuffer int, opts ReaderOptions)
 		eventFds:     eventFds,
 		overwritable: opts.Overwritable,
 		bufferSize:   bufferSize,
+		wakeupCount:  &atomic.Uint64{},
 	}
 	if err = pr.Resume(); err != nil {
 		return nil, err
@@ -383,6 +386,7 @@ func (pr *Reader) ReadInto(rec *Record) error {
 				ring.loadHead()
 				pr.epollRings = append(pr.epollRings, ring)
 			}
+			pr.wakeupCount.Add(1)
 		}
 
 		// Start at the last available event. The order in which we
@@ -460,6 +464,12 @@ func (pr *Reader) BufferSize() int {
 // until you receive a [ErrFlushed] error.
 func (pr *Reader) Flush() error {
 	return pr.poller.Flush()
+}
+
+// WakeupCount returns the number of times this reader has woken up during Read/ReadInto,
+// since the last time WakeupCount was called.
+func (pr *Reader) WakeupCount() uint64 {
+	return pr.wakeupCount.Swap(0)
 }
 
 // NB: Has to be preceded by a call to ring.loadHead.
