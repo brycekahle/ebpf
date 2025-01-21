@@ -165,10 +165,10 @@ func (ps *ProgramSpec) Tag() (string, error) {
 	return ps.Instructions.Tag(internal.NativeEndian)
 }
 
-// kernelModule returns the kernel module providing the symbol in
+// KernelModule returns the kernel module providing the symbol in
 // ProgramSpec.AttachTo, if any. Returns an empty string if the symbol is not
 // present or not part of a kernel module.
-func (ps *ProgramSpec) kernelModule() (string, error) {
+func (ps *ProgramSpec) KernelModule() (string, error) {
 	if ps.targetsKernelModule() {
 		return kallsyms.Module(ps.AttachTo)
 	}
@@ -295,7 +295,7 @@ func newProgramWithOptions(spec *ProgramSpec, opts ProgramOptions) (*Program, er
 	insns := make(asm.Instructions, len(spec.Instructions))
 	copy(insns, spec.Instructions)
 
-	kmodName, err := spec.kernelModule()
+	kmodName, err := spec.KernelModule()
 	if err != nil {
 		return nil, fmt.Errorf("kernel module search: %w", err)
 	}

@@ -1023,7 +1023,7 @@ func TestProgramAttachToKernelModule(t *testing.T) {
 	requireTestmod(t)
 
 	ps := ProgramSpec{AttachTo: "bpf_testmod_test_read", Type: Tracing, AttachType: AttachTraceFEntry}
-	mod, err := ps.kernelModule()
+	mod, err := ps.KernelModule()
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(mod, "bpf_testmod"))
 }
